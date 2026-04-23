@@ -22,14 +22,16 @@ public class LookAtExpansion extends PlaceholderExpansion {
     
     @Override
     public String getVersion() {
-        return "1.1.0";
+        return "1.2.0";
     }
     
     @Override
     public List<String> getPlaceholders() {
         List<String> placeholders = new ArrayList<>();
         
-        placeholders.add("%lookat_see_\"false_value\"_\"true_value\"%");
+        placeholders.add("%lookat_see_\"false\"_\"true\"%");
+        placeholders.add("%lookat_see_<false>_<true>%");
+        placeholders.add("%lookat_see_[false]_[true]%");
         placeholders.add("%lookat_target_name%");
         placeholders.add("%lookat_target_uuid%");
         placeholders.add("%lookat_target_health%");
@@ -62,13 +64,30 @@ public class LookAtExpansion extends PlaceholderExpansion {
         return null;
     }
     
-    // Processes the "see" placeholder with quoted values
+    // Detects which bracket type is used and returns open/close chars
+    private char[] detectBracketType(String input) {
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+            if (c == '"') return new char[]{'"', '"'};
+            if (c == '<') return new char[]{'<', '>'};
+            if (c == '[') return new char[]{'[', ']'};
+        }
+        // Default fallback
+        return new char[]{'"', '"'};
+    }
+    
+    // Processes the "see" placeholder with bracketed values
     private String handleSeePlaceholder(Player viewer, String params) {
         // Remove "see_" prefix
         String remaining = params.substring(4);
         
-        // Extract values inside quotes
-        List<String> parts = extractQuotedStrings(remaining);
+        // Detect which brackets are used
+        char[] brackets = detectBracketType(remaining);
+        char openBracket = brackets[0];
+        char closeBracket = brackets[1];
+        
+        // Extract values inside detected brackets
+        List<String> parts = extractBracketedStrings(remaining, openBracket, closeBracket);
         
         if (parts.size() == 0) {
             return "";
@@ -90,33 +109,38 @@ public class LookAtExpansion extends PlaceholderExpansion {
         }
     }
     
-    // Extracts strings enclosed in double quotes
-    private List<String> extractQuotedStrings(String input) {
+    // Extracts strings enclosed in the specified brackets
+    private List<String> extractBracketedStrings(String input, char openBracket, char closeBracket) {
         List<String> result = new ArrayList<>();
         StringBuilder current = new StringBuilder();
-        boolean insideQuotes = false;
+        boolean insideBrackets = false;
         
         for (int i = 0; i < input.length(); i++) {
             char c = input.charAt(i);
             
-            if (c == '"') {
-                if (insideQuotes) {
-                    // Closing quote — save the value
+            if (c == openBracket) {
+                if (!insideBrackets) {
+                    // Opening bracket — start new value
+                    insideBrackets = true;
+                    current = new StringBuilder();
+                } else if (openBracket == closeBracket) {
+                    // Same open and close char (like quotes) — this closes the value
                     result.add(current.toString());
                     current = new StringBuilder();
-                    insideQuotes = false;
-                } else {
-                    // Opening quote — start new value
-                    insideQuotes = true;
-                    current = new StringBuilder();
+                    insideBrackets = false;
                 }
-            } else if (insideQuotes) {
+            } else if (c == closeBracket && insideBrackets) {
+                // Closing bracket — save the value
+                result.add(current.toString());
+                current = new StringBuilder();
+                insideBrackets = false;
+            } else if (insideBrackets) {
                 current.append(c);
             }
-            // Everything outside quotes is ignored (separators like _)
+            // Everything outside brackets is ignored (separators like _)
         }
         
-        // If a quote was never closed, add whatever we have
+        // If brackets never closed, add whatever we have
         if (current.length() > 0) {
             result.add(current.toString());
         }
