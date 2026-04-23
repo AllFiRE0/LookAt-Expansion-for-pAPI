@@ -85,7 +85,7 @@ public class LookAtExpansion extends PlaceholderExpansion {
             if (target == null) return "";    
             String dataType = params.substring(7); // remove "target_"        
             switch (dataType.toLowerCase()) {
-                case "name"Placeholder processing:
+                case "name":
                     return target.getName();
                 case "uuid":
                     return target.getUniqueId().toString();
