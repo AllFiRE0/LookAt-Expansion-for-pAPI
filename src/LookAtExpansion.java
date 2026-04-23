@@ -1,6 +1,9 @@
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
+import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.util.RayTraceResult;
@@ -22,7 +25,7 @@ public class LookAtExpansion extends PlaceholderExpansion {
     
     @Override
     public String getVersion() {
-        return "1.2.0";
+        return "1.3.1";
     }
     
     @Override
@@ -46,8 +49,28 @@ public class LookAtExpansion extends PlaceholderExpansion {
         return placeholders;
     }
     
-    // Gets the player the viewer is looking at
+    // Gets the player the viewer is looking at (thread-safe)
     private Player getTargetPlayer(Player viewer) {
+        // If already on main thread, just do it directly
+        if (Bukkit.isPrimaryThread()) {
+            return getTargetPlayerDirect(viewer);
+        }
+        
+        // If on async thread, schedule on main thread
+        try {
+            CompletableFuture<Player> future = new CompletableFuture<>();
+            Bukkit.getScheduler().runTask(
+                Bukkit.getPluginManager().getPlugin("PlaceholderAPI"),
+                () -> future.complete(getTargetPlayerDirect(viewer))
+            );
+            return future.get();
+        } catch (InterruptedException | ExecutionException e) {
+            return null;
+        }
+    }
+    
+    // Direct ray trace (must be called from main thread)
+    private Player getTargetPlayerDirect(Player viewer) {
         double maxDistance = 10.0;
         
         RayTraceResult result = viewer.getWorld().rayTraceEntities(
@@ -64,7 +87,7 @@ public class LookAtExpansion extends PlaceholderExpansion {
         return null;
     }
     
-    // Detects which bracket type is used and returns open/close chars
+    // Detects which bracket type is used
     private char[] detectBracketType(String input) {
         for (int i = 0; i < input.length(); i++) {
             char c = input.charAt(i);
@@ -72,21 +95,17 @@ public class LookAtExpansion extends PlaceholderExpansion {
             if (c == '<') return new char[]{'<', '>'};
             if (c == '[') return new char[]{'[', ']'};
         }
-        // Default fallback
         return new char[]{'"', '"'};
     }
     
-    // Processes the "see" placeholder with bracketed values
+    // Processes the "see" placeholder
     private String handleSeePlaceholder(Player viewer, String params) {
-        // Remove "see_" prefix
         String remaining = params.substring(4);
         
-        // Detect which brackets are used
         char[] brackets = detectBracketType(remaining);
         char openBracket = brackets[0];
         char closeBracket = brackets[1];
         
-        // Extract values inside detected brackets
         List<String> parts = extractBracketedStrings(remaining, openBracket, closeBracket);
         
         if (parts.size() == 0) {
@@ -96,10 +115,11 @@ public class LookAtExpansion extends PlaceholderExpansion {
         String falseValue = parts.get(0);
         String trueValue = parts.size() > 1 ? parts.get(1) : "";
         
-        // Parse {} into real placeholders
+        // Parse {} placeholders first (safe to do async)
         falseValue = parseInlinePlaceholders(viewer, falseValue);
         trueValue = parseInlinePlaceholders(viewer, trueValue);
         
+        // Get target (thread-safe)
         Player target = getTargetPlayer(viewer);
         
         if (target != null) {
@@ -109,7 +129,7 @@ public class LookAtExpansion extends PlaceholderExpansion {
         }
     }
     
-    // Extracts strings enclosed in the specified brackets
+    // Extracts strings enclosed in brackets
     private List<String> extractBracketedStrings(String input, char openBracket, char closeBracket) {
         List<String> result = new ArrayList<>();
         StringBuilder current = new StringBuilder();
@@ -120,27 +140,22 @@ public class LookAtExpansion extends PlaceholderExpansion {
             
             if (c == openBracket) {
                 if (!insideBrackets) {
-                    // Opening bracket — start new value
                     insideBrackets = true;
                     current = new StringBuilder();
                 } else if (openBracket == closeBracket) {
-                    // Same open and close char (like quotes) — this closes the value
                     result.add(current.toString());
                     current = new StringBuilder();
                     insideBrackets = false;
                 }
             } else if (c == closeBracket && insideBrackets) {
-                // Closing bracket — save the value
                 result.add(current.toString());
                 current = new StringBuilder();
                 insideBrackets = false;
             } else if (insideBrackets) {
                 current.append(c);
             }
-            // Everything outside brackets is ignored (separators like _)
         }
         
-        // If brackets never closed, add whatever we have
         if (current.length() > 0) {
             result.add(current.toString());
         }
@@ -148,7 +163,7 @@ public class LookAtExpansion extends PlaceholderExpansion {
         return result;
     }
     
-    // Replaces {placeholder} with the actual parsed placeholder value
+    // Replaces {placeholder} with parsed value
     private String parseInlinePlaceholders(Player viewer, String text) {
         StringBuilder result = new StringBuilder();
         StringBuilder braceContent = new StringBuilder();
@@ -177,7 +192,6 @@ public class LookAtExpansion extends PlaceholderExpansion {
     
     @Override
     public String onRequest(OfflinePlayer p, String params) {
-        // Ensure the player is online
         if (p == null || !p.isOnline()) {
             return "";
         }
@@ -195,7 +209,7 @@ public class LookAtExpansion extends PlaceholderExpansion {
             Player target = getTargetPlayer(viewer);
             if (target == null) return "";
             
-            String dataType = params.substring(7); // Remove "target_"
+            String dataType = params.substring(7);
             
             switch (dataType.toLowerCase()) {
                 case "name":
@@ -221,12 +235,12 @@ public class LookAtExpansion extends PlaceholderExpansion {
             }
         }
         
-        // Handle parsing of external placeholders for the target
+        // Handle parsing of external placeholders
         if (params.startsWith("parse_")) {
             Player target = getTargetPlayer(viewer);
             if (target == null) return "";
             
-            String placeholder = params.substring(6); // Remove "parse_"
+            String placeholder = params.substring(6);
             placeholder = "%" + placeholder + "%";
             
             return PlaceholderAPI.setPlaceholders(target, placeholder);
