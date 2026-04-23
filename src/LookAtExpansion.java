@@ -89,7 +89,7 @@ public class LookAtExpansion extends PlaceholderExpansion {
                     return target.getName();
                 case "uuid":
                     return target.getUniqueId().toString();
-              case Processing direct requests "health":
+                case "health":
                     return String.format("%.1f", target.getHealth());
                 case "max_health":
                     return String.format("%.1f", target.getMaxHealth());
